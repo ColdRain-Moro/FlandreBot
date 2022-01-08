@@ -33,7 +33,6 @@ object Flandre : KotlinPlugin(
 ) {
 
     override fun onEnable() {
-        MyData.reload()
         PixivPics.Conf.reload()
         // 代码执行模块
         CodeRunner.init(this)
@@ -45,9 +44,5 @@ object Flandre : KotlinPlugin(
             }
         }
     }
-}
-
-object MyData : AutoSavePluginData("images") {
-    val value: MutableList<String> by value()
 }
 

@@ -45,13 +45,19 @@ object PixivPics : CoroutineScope by Flandre {
                         return@launch
                     }
                     search().apply {
-                        val item = get(Random.nextInt(size))
+                        var item = get(Random.nextInt(size))
+                        if (!Conf.allow_sex) {
+                            while (item.sanity_level == 6) {
+                                item = get(Random.nextInt(size))
+                            }
+                        }
                         val url = if (item.page_count > 1) {
-                            item.meta_pages[Random.nextInt(item.page_count)].image_urls.original
+                            item.meta_pages[Random.nextInt(item.page_count)].image_urls.large
                         } else {
                             item.meta_single_page.original_image_url
                         }.replace("\\/", "/")
                             .replace("i.pximg.net", "i.acgmx.com")
+                        println(url)
                         val img = getImage(url)?.toExternalResource() ?: return@launch let {
                             group.sendMessage("内部错误: 不存在的图片")
                         }
@@ -70,9 +76,10 @@ object PixivPics : CoroutineScope by Flandre {
     }
 
     private suspend fun search(): List<Illust> = coroutineScope {
+        println()
         val request = Request.Builder()
             .addHeader("token", Conf.apiKey)
-            .url("https://api.acgmx.com/public/search?q=${URLEncoder.encode(TAG + TAG_SUFFIX, "utf-8")}&offset=${Conf.range}")
+            .url("https://api.acgmx.com/public/search?q=${URLEncoder.encode(TAG + TAG_SUFFIX, "utf-8")}&offset=${Random.nextInt(100)}")
             .build()
         val json = client.newCall(request)
             .execute()
@@ -91,6 +98,6 @@ object PixivPics : CoroutineScope by Flandre {
 
     object Conf : AutoSavePluginConfig("pixiv_pics") {
         val apiKey: String by value("")
-        val range: Int by value(30)
+        val allow_sex: Boolean by value(false)
     }
 }
