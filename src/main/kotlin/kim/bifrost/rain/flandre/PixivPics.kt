@@ -24,6 +24,7 @@ import java.io.IOException
 import java.io.OutputStream
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -39,8 +40,8 @@ import kotlin.random.Random
 object PixivPics : CoroutineScope by Flandre {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
 
@@ -57,12 +58,29 @@ object PixivPics : CoroutineScope by Flandre {
         "女孩" to ("女の子" to 10000)
     )
 
+    private val currentCounts = AtomicInteger()
+
+    private val errorCounts = AtomicInteger()
+
     fun init() {
+        launch {
+            // 每分钟重置
+            while (true) {
+                delay(TimeUnit.MINUTES.toMillis(1))
+                currentCounts.set(0)
+                errorCounts.set(0)
+            }
+        }
         GlobalEventChannel.parentScope(this).subscribeAlways<GroupMessageEvent> {
             val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
                 launch {
+                    errorCounts.getAndIncrement()
                     group.sendMessage(message.quote().plus("发生错误: ${throwable.localizedMessage}"))
                 }
+            }
+            // 每分钟搜图数或错误数达到上限，直接返回
+            if (currentCounts.get() >= 5 && errorCounts.get() >= 5) {
+                return@subscribeAlways
             }
             if (message.content.startsWith("来张")) {
                 val key = message.content
@@ -111,6 +129,7 @@ object PixivPics : CoroutineScope by Flandre {
                         val imageId = img.uploadAsImage(group).imageId
                         img.closeQuietly()
                         val receipt = group.sendMessage(Image(imageId))
+                        currentCounts.getAndIncrement()
                         if (item.sanity_level == 6) {
                             // 涩图将在15秒后撤回
                             delay(TimeUnit.SECONDS.toMillis(15))
@@ -159,33 +178,10 @@ object PixivPics : CoroutineScope by Flandre {
                 }
 
                 override fun onResponse(call: Call, response: Response) {
-                    it.resume(if (!url.contains("_webp")) response.body?.bytes() else decodeWebP(response.body!!.bytes()))
+                    it.resume(response.body?.bytes())
                 }
 
             })
-    }
-
-    private fun decodeWebP(encoded: ByteArray): ByteArray? {
-        var result:ByteArray? = null
-        val bitmapFactoryClazz = Class.forName("android.graphics.BitmapFactory")
-        val bitmapClazz = Class.forName("android.graphics.Bitmap")
-        val compressFormatClazz = Class.forName("android.graphics.Bitmap\$CompressFormat")
-        val decodeByteArrayMethod = bitmapFactoryClazz.getMethod("decodeByteArray", ByteArray::class.java, Int::class.java, Int::class.java) // public static Bitmap decodeByteArray(byte[] data, int offset, int length) {
-        val compressMethod = bitmapClazz.getMethod("compress", compressFormatClazz, Int::class.java, OutputStream::class.java)
-        val recycleMethod = bitmapClazz.getMethod("recycle")
-        val bitmap = decodeByteArrayMethod.invoke(null,encoded, 0, encoded.size)//BitmapFactory.decodeByteArray(encoded, 0, encoded.size)
-        val byteArrayOutputStream = ByteArrayOutputStream()
-        try {
-            val bos = BufferedOutputStream(byteArrayOutputStream)
-            compressMethod.invoke(bitmap, compressFormatClazz.getField("PNG").get(null), 100, bos)//bitmap.compress(Bitmap.CompressFormat.PNG, 100, bos)
-            bos.flush()
-            result = byteArrayOutputStream.toByteArray()
-            bos.close()
-            recycleMethod.invoke(bitmap)
-        } catch (e: IOException) {
-            e.printStackTrace()
-        }
-        return result
     }
 
     object Conf : AutoSavePluginConfig("pixiv_pics") {

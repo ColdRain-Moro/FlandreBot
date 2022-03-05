@@ -38,6 +38,8 @@ object CodeRunner {
                             kotlin.runCatching {
                                 val code = msg.removePrefix("runJs").replace("\\n", "")
                                 val engine = scriptEngineManager.getEngineByName("js")
+                                // 放入事件对象，从而使机器人的行为可以被脚本所控制
+                                engine.put("event", this)
                                 engine.eval(code)
                             }.onSuccess {
                                 future.complete(it)
@@ -51,21 +53,9 @@ object CodeRunner {
                     }.onFailure {
                         subject.sendMessage("脚本执行错误: ${it.message}")
                     }.onSuccess {
-                        if (it !is ErrorObj) subject.sendMessage("返回值: $it") else subject.sendMessage("脚本执行错误: ${it.msg}")
-                    }
-                    executing = false
-                } else if (msg.startsWith("runPy") && !executing) {
-                    kotlin.runCatching {
-                        executing = true
-                        withTimeout(TimeUnit.SECONDS.toMillis(5)) {
-                            val code = msg.removePrefix("runPy").replace("\\n", "")
-                            val engine = scriptEngineManager.getEngineByName("python")
-                            engine.eval(code)
+                        it?.let {
+                            if (it !is ErrorObj) subject.sendMessage("返回值: $it") else subject.sendMessage("脚本执行错误: ${it.msg}")
                         }
-                    }.onFailure {
-                        subject.sendMessage("脚本执行错误: ${it.message}")
-                    }.onSuccess {
-                        subject.sendMessage("返回值: $it")
                     }
                     executing = false
                 }
