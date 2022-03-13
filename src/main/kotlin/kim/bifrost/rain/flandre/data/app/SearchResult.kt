@@ -1,4 +1,6 @@
-package kim.bifrost.rain.flandre.data
+package kim.bifrost.rain.flandre.data.app
+
+import kim.bifrost.rain.flandre.data.app.Illust
 
 data class SearchResult(
     val illusts: List<Illust>,

@@ -1,4 +1,4 @@
-package kim.bifrost.rain.flandre.data
+package kim.bifrost.rain.flandre.data.app
 
 data class Tag(
     val name: String,

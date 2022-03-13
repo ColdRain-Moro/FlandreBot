@@ -1,4 +1,6 @@
-package kim.bifrost.rain.flandre.data
+package kim.bifrost.rain.flandre.data.app
+
+import kim.bifrost.rain.flandre.data.app.ProfileImageUrls
 
 data class User(
     val account: String,
