@@ -1,5 +1,8 @@
 package kim.bifrost.rain.flandre.data
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class Illust(
     val caption: String,
     val create_date: String,
@@ -13,7 +16,6 @@ data class Illust(
     val page_count: Int,
     val restrict: Int,
     val sanity_level: Int,
-    val series: Any,
     val tags: List<Tag>,
     val title: String,
     val tools: List<String>,

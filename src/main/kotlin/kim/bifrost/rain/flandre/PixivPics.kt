@@ -7,6 +7,8 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import net.mamoe.mirai.console.data.AutoSavePluginConfig
 import net.mamoe.mirai.console.data.value
 import net.mamoe.mirai.event.GlobalEventChannel
@@ -18,10 +20,7 @@ import net.mamoe.mirai.utils.ExternalResource.Companion.toExternalResource
 import net.mamoe.mirai.utils.ExternalResource.Companion.uploadAsImage
 import okhttp3.*
 import okhttp3.internal.closeQuietly
-import java.io.BufferedOutputStream
-import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.io.OutputStream
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -39,17 +38,18 @@ import kotlin.random.Random
  **/
 object PixivPics : CoroutineScope by Flandre {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .build()
-    private val gson = Gson()
-
     private val remapper = mutableMapOf(
         "芙兰" to ("フランドール･スカーレット" to 1000),
+        "蕾米" to ("レミリア・スカーレット" to 1000),
         "恋恋" to ("古明地こいし" to 1000),
-        "东方" to ("東方Project" to 5000),
+        "东方" to ("東方" to 10000),
         "咲夜" to ("十六夜咲夜" to 1000),
+        "早苗" to ("東風谷早苗" to 1000),
+        "灵梦" to ("博麗霊夢" to 5000),
+        "魔理沙" to ("霧雨魔理沙" to 1000),
+        "爱丽丝" to ("アリス・マーガトロイド" to 1000),
+        "咏唱组" to ("マリアリ" to 1000),
+        "主角组" to ("レイマリ" to 1000),
         "黑丝" to ("黒スト" to 10000),
         "白丝" to ("白タイツ" to 10000),
         "随便什么丝" to ("ストッキング" to 10000),
@@ -61,6 +61,8 @@ object PixivPics : CoroutineScope by Flandre {
     private val currentCounts = AtomicInteger()
 
     private val errorCounts = AtomicInteger()
+
+    private var debug = false
 
     fun init() {
         launch {
@@ -78,6 +80,15 @@ object PixivPics : CoroutineScope by Flandre {
                     group.sendMessage(message.quote().plus("发生错误: ${throwable.localizedMessage}"))
                 }
             }
+            if (sender.id == 1335014319L && message.content == "/debug") {
+                debug = !debug
+                group.sendMessage("DebugMode: $debug")
+                return@subscribeAlways
+            }
+            if (message.content == "/listmapper") {
+                group.sendMessage("可用词条映射: ${remapper.keys.joinToString(", ")}")
+                return@subscribeAlways
+            }
             // 每分钟搜图数或错误数达到上限，直接返回
             if (currentCounts.get() >= 5 && errorCounts.get() >= 5) {
                 return@subscribeAlways
@@ -85,13 +96,9 @@ object PixivPics : CoroutineScope by Flandre {
             if (message.content.startsWith("来张")) {
                 val key = message.content
                     .removePrefix("来张")
-                    .run {
-                        var str = this
-                        remapper.forEach { (k, v) ->
-                            str = str.replace(k, v.first)
-                        }
-                        str
-                    }
+                if (key.trim().isEmpty()) {
+                    return@subscribeAlways
+                }
                 val limit = remapper[key]?.second ?: 1000
                 val query = key.run {
                     var str = this
@@ -102,6 +109,10 @@ object PixivPics : CoroutineScope by Flandre {
                 } + "+${limit}users入り"
                 launch(exceptionHandler) {
                     search(query).apply {
+                        if (isEmpty()) {
+                            group.sendMessage(message.quote().plus("没有找到符合条件的图片"))
+                            return@apply
+                        }
                         var tryCounts = 0
                         var item = get(Random.nextInt(size))
                         if (!Conf.allow_sex) {
@@ -119,9 +130,11 @@ object PixivPics : CoroutineScope by Flandre {
                         } else {
                             item.meta_single_page.original_image_url
                         }.replace("\\/", "/")
-                            .replace("i.pximg.net", "i.acgmx.com")
+                            .replace("i.pximg.net", "pixiv-image-lv.pwp.link")
                             .replace("_webp", "")
-                        println(url)
+                        if (debug) {
+                            println(url)
+                        }
                         val type = url.split(".").run { get(size - 1) }
                         val img = getImage(url)?.toExternalResource(type) ?: return@launch let {
                             group.sendMessage("内部错误: 不存在的图片")
@@ -142,33 +155,17 @@ object PixivPics : CoroutineScope by Flandre {
     }
 
     private suspend fun search(key: String): List<Illust> = suspendCoroutine {
+        val url = "https://api.acgmx.com/public/search?q=${
+            URLEncoder.encode(
+                key,
+                "utf-8"
+            )
+        }&offset=${Random.nextInt(100)}"
+        if (debug) {
+            println(url)
+        }
         val request = Request.Builder()
             .addHeader("token", Conf.apiKey)
-            .url(
-                "https://api.acgmx.com/public/search?q=${
-                    URLEncoder.encode(
-                        key,
-                        "utf-8"
-                    )
-                }&offset=${Random.nextInt(100)}"
-            )
-            .build()
-        client.newCall(request)
-            .enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    it.resumeWithException(e)
-                }
-
-                override fun onResponse(call: Call, response: Response) {
-                    val obj = gson.fromJson(response.body!!.string(), SearchResult::class.java)
-                    it.resume(obj.illusts)
-                }
-
-            })
-    }
-
-    private suspend fun getImage(url: String): ByteArray? = suspendCoroutine {
-        val request = Request.Builder()
             .url(url)
             .build()
         client.newCall(request)
@@ -178,7 +175,12 @@ object PixivPics : CoroutineScope by Flandre {
                 }
 
                 override fun onResponse(call: Call, response: Response) {
-                    it.resume(response.body?.bytes())
+                    val json = response.body!!.string()
+                    if (debug) {
+                        println(json)
+                    }
+                    val obj = gson.fromJson(json, SearchResult::class.java)
+                    it.resume(obj.illusts)
                 }
 
             })

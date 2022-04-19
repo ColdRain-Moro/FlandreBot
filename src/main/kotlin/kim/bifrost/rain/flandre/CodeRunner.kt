@@ -1,13 +1,16 @@
 package kim.bifrost.rain.flandre
 
+import jdk.nashorn.api.scripting.NashornScriptEngineFactory
 import kotlinx.coroutines.*
 import net.mamoe.mirai.console.plugin.jvm.KotlinPlugin
 import net.mamoe.mirai.contact.MemberPermission
+import net.mamoe.mirai.contact.User
 import net.mamoe.mirai.event.GlobalEventChannel
 import net.mamoe.mirai.event.events.GroupMessageEvent
+import net.mamoe.mirai.message.data.MessageSource.Key.quote
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
-import javax.script.ScriptEngineManager
+import javax.script.ScriptEngine
 import kotlin.concurrent.thread
 
 /**
@@ -20,44 +23,42 @@ import kotlin.concurrent.thread
  * @author 寒雨
  * @since 2021/12/22 22:51
  **/
-object CodeRunner {
 
-    private var executing = false
+object CodeRunner : CoroutineScope by Flandre {
 
-    private val scriptEngineManager = ScriptEngineManager()
+    private var currentScriptEngine: ScriptEngine? = null
+
+    private var currentUser: User? = null
+
+    @Suppress("DEPRECATION")
+    private val nashornScriptEngineFactory = NashornScriptEngineFactory()
 
     fun init(plugin: KotlinPlugin) {
         GlobalEventChannel.parentScope(plugin).subscribeAlways<GroupMessageEvent> {
             if (sender.permission >= MemberPermission.ADMINISTRATOR) {
                 val msg = message.contentToString()
-                if (msg.startsWith("runJs") && !executing) {
-                    kotlin.runCatching {
-                        executing = true
-                        val future = CompletableFuture<Any?>()
-                        val thread = thread {
-                            kotlin.runCatching {
-                                val code = msg.removePrefix("runJs").replace("\\n", "")
-                                val engine = scriptEngineManager.getEngineByName("js")
-                                // 放入事件对象，从而使机器人的行为可以被脚本所控制
-                                engine.put("event", this)
-                                engine.eval(code)
-                            }.onSuccess {
-                                future.complete(it)
-                            }.onFailure {
-                                future.complete(ErrorObj(it.message))
-                            }
-                        }
-                        val res = kotlin.runCatching { future.get(5, TimeUnit.SECONDS) }
-                            .onFailure { thread.stop() }
-                        res.getOrThrow()
-                    }.onFailure {
-                        subject.sendMessage("脚本执行错误: ${it.message}")
-                    }.onSuccess {
-                        it?.let {
-                            if (it !is ErrorObj) subject.sendMessage("返回值: $it") else subject.sendMessage("脚本执行错误: ${it.msg}")
+                if (msg == "/shell") {
+                    if (currentScriptEngine == null) {
+                        currentScriptEngine = nashornScriptEngineFactory.getScriptEngine("--language=es6")
+                        currentScriptEngine?.put("event", this)
+                        currentUser = sender
+                        group.sendMessage(message.quote() + "已进入JavaScript Shell")
+                    } else {
+                        currentScriptEngine = null
+                        currentUser = null
+                        group.sendMessage(message.quote() + "已退出JavaScript Shell")
+                    }
+                    return@subscribeAlways
+                }
+                if (sender == currentUser) {
+                    launch(Dispatchers.IO) {
+                        kotlin.runCatching {
+                            val res = currentScriptEngine?.eval(message.contentToString())
+                            group.sendMessage("返回值: $res")
+                        }.onFailure {
+                            group.sendMessage("脚本执行异常: " + it.javaClass.name + ": ${it.message}")
                         }
                     }
-                    executing = false
                 }
             }
         }

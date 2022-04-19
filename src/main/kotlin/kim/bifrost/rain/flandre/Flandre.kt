@@ -38,8 +38,8 @@ object Flandre : KotlinPlugin(
         Persecution.Conf.reload()
         // 代码执行模块
         CodeRunner.init(this)
-        PixivPics.init()
         Persecution.init()
+        PixivPics.init()
         // 发病模块
         Morbidity.init()
         // 戳一戳回应
