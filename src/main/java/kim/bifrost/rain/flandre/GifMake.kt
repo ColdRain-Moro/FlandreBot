@@ -24,7 +24,7 @@ import java.io.InputStream
 class GifMakeCommand : CompositeCommand(
     owner = Flandre,
     primaryName = "makeGif",
-    description = "制图命令"
+    description = "制图命令",
 ) {
 
     private val petService = BasePetService()

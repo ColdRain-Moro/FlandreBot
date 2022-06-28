@@ -45,6 +45,7 @@ object Flandre : KotlinPlugin(
         Morbidity.init()
         // gif指令
         CommandManager.registerCommand(GifMakeCommand(), false)
+        CommandManager.registerCommand(FakeMessageCommand(), false)
         // 戳一戳回应
         GlobalEventChannel.parentScope(this).subscribeAlways<NudgeEvent> {
             if (target.id == bot.id) {
